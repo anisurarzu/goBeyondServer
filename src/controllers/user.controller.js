@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { validationResult } = require('express-validator');
-const { pool } = require('../db');
+const { prisma } = require('../db');
 const { generateToken, generateRefreshToken } = require('../utils/jwt.utils');
 
 // Register a new user
@@ -27,12 +27,12 @@ const register = async (req, res) => {
     const { email, password, name } = req.body;
 
     // Check if user already exists
-    const existingUser = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: { id: true }
+    });
 
-    if (existingUser.rows.length > 0) {
+    if (existingUser) {
       return res.status(409).json({
         success: false,
         message: 'User with this email already exists'
@@ -44,12 +44,19 @@ const register = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // Insert new user
-    const result = await pool.query(
-      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
-      [email.toLowerCase(), hashedPassword, name || null]
-    );
-
-    const user = result.rows[0];
+    const user = await prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        name: name || null
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true
+      }
+    });
 
     // Generate tokens
     const token = generateToken(user.id);
@@ -63,7 +70,7 @@ const register = async (req, res) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          created_at: user.created_at
+          created_at: user.createdAt
         },
         token,
         refreshToken
@@ -101,19 +108,22 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     // Find user by email
-    const result = await pool.query(
-      'SELECT id, email, password, name FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        name: true
+      }
+    });
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
       });
     }
-
-    const user = result.rows[0];
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -124,6 +134,12 @@ const login = async (req, res) => {
         message: 'Invalid email or password'
       });
     }
+
+    // Update last_active timestamp on login
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastActive: new Date() }
+    });
 
     // Generate tokens
     const token = generateToken(user.id);
@@ -155,29 +171,46 @@ const login = async (req, res) => {
 // Get current user profile (protected route)
 const getProfile = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT id, email, name, first_name, last_name, image, birthdate, profession, created_at, updated_at 
-       FROM users WHERE id = $1`,
-      [req.user.id]
-    );
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        image: true,
+        birthdate: true,
+        profession: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
 
-    const user = result.rows[0];
     // Add full image URL if image exists
-    if (user.image) {
-      user.image = `${req.protocol}://${req.get('host')}/uploads/${user.image}`;
+    const userData = {
+      ...user,
+      first_name: user.firstName,
+      last_name: user.lastName,
+      created_at: user.createdAt,
+      updated_at: user.updatedAt
+    };
+    
+    if (userData.image) {
+      userData.image = `${req.protocol}://${req.get('host')}/uploads/${userData.image}`;
     }
 
     res.json({
       success: true,
       data: {
-        user: user
+        user: userData
       }
     });
   } catch (error) {
@@ -209,70 +242,81 @@ const updateProfile = async (req, res) => {
     }
 
     const { firstName, lastName, birthdate, profession, name } = req.body;
-    const updateFields = [];
-    const values = [];
-    let paramCount = 1;
+    
+    // Build update data object
+    const updateData = {};
 
     // Handle image upload
     if (req.file) {
-      updateFields.push(`image = $${paramCount++}`);
-      values.push(req.file.filename);
+      updateData.image = req.file.filename;
     }
 
     // Handle other fields
     if (firstName !== undefined) {
-      updateFields.push(`first_name = $${paramCount++}`);
-      values.push(firstName.trim());
+      updateData.firstName = firstName.trim();
     }
 
     if (lastName !== undefined) {
-      updateFields.push(`last_name = $${paramCount++}`);
-      values.push(lastName.trim());
+      updateData.lastName = lastName.trim();
     }
 
     if (birthdate !== undefined && birthdate !== null && birthdate !== '') {
-      updateFields.push(`birthdate = $${paramCount++}`);
-      values.push(birthdate);
+      updateData.birthdate = new Date(birthdate);
     }
 
     if (profession !== undefined) {
-      updateFields.push(`profession = $${paramCount++}`);
-      values.push(profession.trim());
+      updateData.profession = profession.trim();
     }
 
     // Keep name field for backward compatibility
     if (name !== undefined) {
-      updateFields.push(`name = $${paramCount++}`);
-      values.push(name.trim());
+      updateData.name = name.trim();
     }
 
-    if (updateFields.length === 0) {
+    if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
         success: false,
         message: 'No fields to update'
       });
     }
 
-    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(req.user.id);
+    // Update user with Prisma
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: updateData,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        image: true,
+        birthdate: true,
+        profession: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
 
-    const result = await pool.query(
-      `UPDATE users SET ${updateFields.join(', ')} WHERE id = $${paramCount} 
-       RETURNING id, email, name, first_name, last_name, image, birthdate, profession, created_at, updated_at`,
-      values
-    );
+    // Format user data for response
+    const userData = {
+      ...user,
+      first_name: user.firstName,
+      last_name: user.lastName,
+      created_at: user.createdAt,
+      updated_at: user.updatedAt
+    };
 
-    const user = result.rows[0];
     // Add full image URL if image exists
-    if (user.image) {
-      user.image = `${req.protocol}://${req.get('host')}/uploads/${user.image}`;
+    if (userData.image) {
+      userData.image = `${req.protocol}://${req.get('host')}/uploads/${userData.image}`;
     }
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
       data: {
-        user: user
+        user: userData
       }
     });
   } catch (error) {
@@ -305,19 +349,17 @@ const changePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
     // Get current user password
-    const userResult = await pool.query(
-      'SELECT password FROM users WHERE id = $1',
-      [req.user.id]
-    );
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { password: true }
+    });
 
-    if (userResult.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-
-    const user = userResult.rows[0];
 
     // Verify current password
     const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
@@ -343,10 +385,10 @@ const changePassword = async (req, res) => {
     const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
 
     // Update password
-    await pool.query(
-      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      [hashedNewPassword, req.user.id]
-    );
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { password: hashedNewPassword }
+    });
 
     res.json({
       success: true,
@@ -388,12 +430,12 @@ const refreshToken = async (req, res) => {
     }
 
     // Verify user still exists
-    const result = await pool.query(
-      'SELECT id FROM users WHERE id = $1',
-      [decoded.userId]
-    );
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true }
+    });
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'User not found'
@@ -426,11 +468,85 @@ const refreshToken = async (req, res) => {
   }
 };
 
+// Get all active/logged-in users (protected route)
+const getActiveUsers = async (req, res) => {
+  try {
+    // Default: users active in the last 15 minutes
+    const activeMinutes = parseInt(req.query.minutes) || 15;
+    
+    // Calculate the timestamp threshold
+    const threshold = new Date(Date.now() - activeMinutes * 60 * 1000);
+    
+    // Find active users with Prisma
+    const activeUsers = await prisma.user.findMany({
+      where: {
+        lastActive: {
+          not: null,
+          gte: threshold
+        }
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        image: true,
+        profession: true,
+        lastActive: true,
+        createdAt: true
+      },
+      orderBy: {
+        lastActive: 'desc'
+      }
+    });
+
+    // Format users with full image URLs
+    const users = activeUsers.map(user => {
+      const formattedUser = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        first_name: user.firstName,
+        last_name: user.lastName,
+        image: user.image,
+        profession: user.profession,
+        last_active: user.lastActive,
+        created_at: user.createdAt
+      };
+      
+      if (formattedUser.image) {
+        formattedUser.image = `${req.protocol}://${req.get('host')}/uploads/${formattedUser.image}`;
+      }
+      
+      return formattedUser;
+    });
+
+    res.json({
+      success: true,
+      message: `Found ${users.length} active user(s)`,
+      data: {
+        users: users,
+        count: users.length,
+        activeWithinMinutes: activeMinutes
+      }
+    });
+  } catch (error) {
+    console.error('Get active users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   getProfile,
   updateProfile,
   changePassword,
-  refreshToken
+  refreshToken,
+  getActiveUsers
 };

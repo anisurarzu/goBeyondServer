@@ -6,7 +6,8 @@ const {
   getProfile,
   updateProfile,
   changePassword,
-  refreshToken
+  refreshToken,
+  getActiveUsers
 } = require('../controllers/user.controller');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const {
@@ -26,5 +27,6 @@ router.post('/refresh-token', refreshToken);
 router.get('/profile', authenticateToken, getProfile);
 router.put('/profile', authenticateToken, uploadImage, updateProfileValidation, updateProfile);
 router.post('/change-password', authenticateToken, changePasswordValidation, changePassword);
+router.get('/active-users', authenticateToken, getActiveUsers);
 
 module.exports = router;

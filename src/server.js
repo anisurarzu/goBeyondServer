@@ -106,6 +106,7 @@ const startServer = async () => {
       console.log(`   • Get Profile:      GET  http://localhost:${PORT}/api/auth/profile`);
       console.log(`   • Update Profile:  PUT  http://localhost:${PORT}/api/auth/profile`);
       console.log(`   • Change Password: POST http://localhost:${PORT}/api/auth/change-password`);
+      console.log(`   • Active Users:     GET  http://localhost:${PORT}/api/auth/active-users`);
       console.log(`   • Refresh Token:   POST http://localhost:${PORT}/api/auth/refresh-token`);
       console.log('\n' + '='.repeat(60));
       console.log('✨ Server is ready to accept requests!\n');

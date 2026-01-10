@@ -30,3 +30,6 @@ build/
 
 # Uploaded files
 uploads/
+
+# Prisma
+prisma/migrations/
