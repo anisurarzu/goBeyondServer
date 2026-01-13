@@ -194,7 +194,7 @@ const getProfile = async (req, res) => {
       });
     }
 
-    // Add full image URL if image exists
+    // Format user data - image is already a full URL
     const userData = {
       ...user,
       first_name: user.firstName,
@@ -202,10 +202,6 @@ const getProfile = async (req, res) => {
       created_at: user.createdAt,
       updated_at: user.updatedAt
     };
-    
-    if (userData.image) {
-      userData.image = `${req.protocol}://${req.get('host')}/uploads/${userData.image}`;
-    }
 
     res.json({
       success: true,
@@ -241,14 +237,19 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const { firstName, lastName, birthdate, profession, name } = req.body;
+    const { firstName, lastName, birthdate, profession, name, image } = req.body;
     
     // Build update data object
     const updateData = {};
 
-    // Handle image upload
-    if (req.file) {
-      updateData.image = req.file.filename;
+    // Handle image URL (accept as string URL)
+    if (image !== undefined) {
+      if (image === null || image === '') {
+        // Allow setting image to null to delete it
+        updateData.image = null;
+      } else {
+        updateData.image = image.trim();
+      }
     }
 
     // Handle other fields
@@ -307,11 +308,7 @@ const updateProfile = async (req, res) => {
       updated_at: user.updatedAt
     };
 
-    // Add full image URL if image exists
-    if (userData.image) {
-      userData.image = `${req.protocol}://${req.get('host')}/uploads/${userData.image}`;
-    }
-
+    // Return image URL as-is (already a full URL or null)
     res.json({
       success: true,
       message: 'Profile updated successfully',
@@ -515,10 +512,7 @@ const getActiveUsers = async (req, res) => {
         created_at: user.createdAt
       };
       
-      if (formattedUser.image) {
-        formattedUser.image = `${req.protocol}://${req.get('host')}/uploads/${formattedUser.image}`;
-      }
-      
+      // Image is already a full URL, return as-is
       return formattedUser;
     });
 
@@ -541,6 +535,53 @@ const getActiveUsers = async (req, res) => {
   }
 };
 
+// Delete user image (protected route)
+const deleteImage = async (req, res) => {
+  try {
+    // Update user to set image to null
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { image: null },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        image: true,
+        birthdate: true,
+        profession: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    // Format user data for response
+    const userData = {
+      ...user,
+      first_name: user.firstName,
+      last_name: user.lastName,
+      created_at: user.createdAt,
+      updated_at: user.updatedAt
+    };
+
+    res.json({
+      success: true,
+      message: 'Image deleted successfully',
+      data: {
+        user: userData
+      }
+    });
+  } catch (error) {
+    console.error('Delete image error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -548,5 +589,6 @@ module.exports = {
   updateProfile,
   changePassword,
   refreshToken,
-  getActiveUsers
+  getActiveUsers,
+  deleteImage
 };

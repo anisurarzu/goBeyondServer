@@ -51,7 +51,23 @@ const updateProfileValidation = [
     .optional()
     .trim()
     .isLength({ min: 2, max: 100 })
-    .withMessage('Name must be between 2 and 100 characters')
+    .withMessage('Name must be between 2 and 100 characters'),
+  body('image')
+    .optional()
+    .custom((value) => {
+      // Allow null, empty string, or valid URL
+      if (value === null || value === '') {
+        return true;
+      }
+      // Check if it's a valid URL
+      try {
+        new URL(value);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .withMessage('Image must be a valid URL or empty to remove image')
 ];
 
 const changePasswordValidation = [
