@@ -5,6 +5,7 @@ require('dotenv').config();
 
 const { initializeDatabase } = require('./db');
 const userRoutes = require('./routes/user.routes');
+const mentorRoutes = require('./routes/mentor.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -49,6 +50,7 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/auth', userRoutes);
+app.use('/api/mentors', mentorRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -103,11 +105,19 @@ const startServer = async () => {
       console.log(`   • Health Check:     GET  http://localhost:${PORT}/health`);
       console.log(`   • Register:         POST http://localhost:${PORT}/api/auth/register`);
       console.log(`   • Login:            POST http://localhost:${PORT}/api/auth/login`);
+      console.log(`   • Google Auth:       GET  http://localhost:${PORT}/api/auth/google`);
       console.log(`   • Get Profile:      GET  http://localhost:${PORT}/api/auth/profile`);
       console.log(`   • Update Profile:  PUT  http://localhost:${PORT}/api/auth/profile`);
       console.log(`   • Change Password: POST http://localhost:${PORT}/api/auth/change-password`);
       console.log(`   • Active Users:     GET  http://localhost:${PORT}/api/auth/active-users`);
       console.log(`   • Refresh Token:   POST http://localhost:${PORT}/api/auth/refresh-token`);
+      console.log(`\n📍 Mentor Endpoints:`);
+      console.log(`   • Get All Mentors:  GET  http://localhost:${PORT}/api/mentors`);
+      console.log(`   • Get Mentor:       GET  http://localhost:${PORT}/api/mentors/:id`);
+      console.log(`   • My Mentor Profile: GET http://localhost:${PORT}/api/mentors/profile/me`);
+      console.log(`   • Create Mentor:   POST http://localhost:${PORT}/api/mentors`);
+      console.log(`   • Update Mentor:   PUT  http://localhost:${PORT}/api/mentors/:id`);
+      console.log(`   • Delete Mentor:  DELETE http://localhost:${PORT}/api/mentors/:id`);
       console.log('\n' + '='.repeat(60));
       console.log('✨ Server is ready to accept requests!\n');
     });

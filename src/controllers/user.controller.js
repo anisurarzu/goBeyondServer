@@ -3,6 +3,19 @@ const { validationResult } = require('express-validator');
 const { prisma } = require('../db');
 const { generateToken, generateRefreshToken } = require('../utils/jwt.utils');
 
+// Helper function to check if user is a mentor
+const checkIsMentor = async (userId) => {
+  try {
+    const mentor = await prisma.mentor.findUnique({
+      where: { userId: userId },
+      select: { id: true }
+    });
+    return !!mentor;
+  } catch (error) {
+    return false;
+  }
+};
+
 // Register a new user
 const register = async (req, res) => {
   try {
@@ -58,6 +71,9 @@ const register = async (req, res) => {
       }
     });
 
+    // Check if user is a mentor
+    const isMentor = await checkIsMentor(user.id);
+
     // Generate tokens
     const token = generateToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
@@ -70,7 +86,8 @@ const register = async (req, res) => {
           id: user.id,
           email: user.email,
           name: user.name,
-          created_at: user.createdAt
+          created_at: user.createdAt,
+          isMentor: isMentor
         },
         token,
         refreshToken
@@ -141,6 +158,9 @@ const login = async (req, res) => {
       data: { lastActive: new Date() }
     });
 
+    // Check if user is a mentor
+    const isMentor = await checkIsMentor(user.id);
+
     // Generate tokens
     const token = generateToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
@@ -152,7 +172,8 @@ const login = async (req, res) => {
         user: {
           id: user.id,
           email: user.email,
-          name: user.name
+          name: user.name,
+          isMentor: isMentor
         },
         token,
         refreshToken
@@ -194,13 +215,17 @@ const getProfile = async (req, res) => {
       });
     }
 
+    // Check if user is a mentor
+    const isMentor = await checkIsMentor(user.id);
+
     // Format user data - image is already a full URL
     const userData = {
       ...user,
       first_name: user.firstName,
       last_name: user.lastName,
       created_at: user.createdAt,
-      updated_at: user.updatedAt
+      updated_at: user.updatedAt,
+      isMentor: isMentor
     };
 
     res.json({
@@ -299,13 +324,17 @@ const updateProfile = async (req, res) => {
       }
     });
 
+    // Check if user is a mentor
+    const isMentor = await checkIsMentor(user.id);
+
     // Format user data for response
     const userData = {
       ...user,
       first_name: user.firstName,
       last_name: user.lastName,
       created_at: user.createdAt,
-      updated_at: user.updatedAt
+      updated_at: user.updatedAt,
+      isMentor: isMentor
     };
 
     // Return image URL as-is (already a full URL or null)
@@ -498,6 +527,14 @@ const getActiveUsers = async (req, res) => {
       }
     });
 
+    // Get mentor status for all users
+    const userIds = activeUsers.map(u => u.id);
+    const mentors = await prisma.mentor.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true }
+    });
+    const mentorUserIds = new Set(mentors.map(m => m.userId));
+
     // Format users with full image URLs
     const users = activeUsers.map(user => {
       const formattedUser = {
@@ -509,7 +546,8 @@ const getActiveUsers = async (req, res) => {
         image: user.image,
         profession: user.profession,
         last_active: user.lastActive,
-        created_at: user.createdAt
+        created_at: user.createdAt,
+        isMentor: mentorUserIds.has(user.id)
       };
       
       // Image is already a full URL, return as-is
@@ -556,13 +594,17 @@ const deleteImage = async (req, res) => {
       }
     });
 
+    // Check if user is a mentor
+    const isMentor = await checkIsMentor(user.id);
+
     // Format user data for response
     const userData = {
       ...user,
       first_name: user.firstName,
       last_name: user.lastName,
       created_at: user.createdAt,
-      updated_at: user.updatedAt
+      updated_at: user.updatedAt,
+      isMentor: isMentor
     };
 
     res.json({
